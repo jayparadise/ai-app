@@ -6,8 +6,8 @@ API_KEY = "10019992-c9b1-46b5-be2c-9e760b1c2041"
 
 # We will test these two base URLs
 URL_OPTIONS = [
-    "https://api.oddsblaze.com/v1",
-    "https://odds.oddsblaze.com/v1"
+    "https://api.oddsblaze.com/",
+    "https://odds.oddsblaze.com/"
 ]
 
 def get_working_url():
