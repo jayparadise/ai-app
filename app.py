@@ -1,58 +1,54 @@
 import streamlit as st
 import requests
-import json
 
-# Try to get key from secrets, fallback to hardcoded for this demo
-API_KEY = st.secrets.get("ODDSBLAZE_KEY", "10019992-c9b1-46b5-be2c-9e760b1c2041")
+# Use your key
+API_KEY = "10019992-c9b1-46b5-be2c-9e760b1c2041"
+# Note: Try 'https://api.oddsblaze.com/v1' or 'https://odds.oddsblaze.com/v1' 
+# if one fails.
 BASE_URL = "https://api.oddsblaze.com/v1"
 
-st.set_page_config(page_title="OddsBlaze Connection Tester", layout="wide")
-st.title("🛠️ API Connection Debugger")
+st.title("🛠️ OddsBlaze Robust Tester")
 
-# Checkbox to show raw data
-debug_mode = st.checkbox("Show Raw API Responses", value=True)
-
-def test_connection():
-    # Attempt 1: Just get leagues to see if Key is valid
-    url = f"{BASE_URL}/leagues"
-    params = {"key": API_KEY}
+def fetch_data(endpoint, params=None):
+    url = f"{BASE_URL}/{endpoint}"
+    if params is None:
+        params = {}
+    params["key"] = API_KEY
     
-    st.write("---")
-    st.write("### Test 1: Connectivity & Key Check")
-    try:
-        r = requests.get(url, params=params)
-        st.write(f"**Status Code:** {r.status_code}")
-        if debug_mode:
-            st.json(r.json())
-        return r.status_code == 200
-    except Exception as e:
-        st.error(f"Connection Failed: {e}")
-        return False
+    # Adding a User-Agent often fixes 'char 0' errors 
+    # because it prevents the server from thinking you are a bot.
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json"
+    }
 
-def pull_nba_odds():
-    # Attempt 2: Pull real NBA data
-    url = f"{BASE_URL}/odds"
-    params = {"key": API_KEY, "league": "nba"}
-    
-    st.write("---")
-    st.write("### Test 2: NBA Game Feed")
     try:
-        r = requests.get(url, params=params)
-        data = r.json()
+        response = requests.get(url, params=params, headers=headers)
         
-        if not data:
-            st.warning("⚠️ Connected, but NBA list is EMPTY. It might be off-season or between games.")
+        # If it's not JSON, this will fail gracefully
+        if response.status_code == 200:
+            try:
+                return response.json()
+            except:
+                st.error("Server returned 200 OK, but it wasn't JSON.")
+                st.text(f"Raw Response: {response.text[:500]}") # Show first 500 chars
         else:
-            st.success(f"✅ Found {len(data)} games!")
-            for game in data:
-                st.write(f"👉 {game.get('away_team')} @ {game.get('home_team')} (ID: `{game.get('id')}`)")
-        
-        if debug_mode:
-            st.json(data)
+            st.error(f"Server Error: {response.status_code}")
+            st.text(f"Response Body: {response.text}")
+            
     except Exception as e:
-        st.error(f"Failed to fetch NBA odds: {e}")
+        st.error(f"Request Failed: {e}")
+    return None
 
-# EXECUTE TESTS
-if st.button("Run Connection Tests"):
-    if test_connection():
-        pull_nba_odds()
+if st.button("Try Connectivity Again"):
+    # 1. Test League list
+    leagues = fetch_data("leagues")
+    if leagues:
+        st.success("✅ Successfully pulled leagues!")
+        st.json(leagues)
+        
+    # 2. Test NBA Odds
+    odds = fetch_data("odds", params={"league": "nba"})
+    if odds:
+        st.success(f"✅ Found {len(odds)} NBA games!")
+        st.json(odds)
