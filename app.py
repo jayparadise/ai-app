@@ -1,71 +1,84 @@
 import streamlit as st
 import requests
 
-# --- CONFIGURATION ---
+# --- 1. CONFIGURATION ---
 API_KEY = "10019992-c9b1-46b5-be2c-9e760b1c2041"
-# The URLs we know work based on your testing
-ODDS_URL = "https://odds.oddsblaze.com/"
-SGP_URL = "https://draftkings.sgp.oddsblaze.com/"
+BASE_URL = "https://api.oddsblaze.com/v1"
 
-st.set_page_config(page_title="OddsBlaze Simple", layout="centered")
-st.title("🏀 Parlay Pricer")
+st.set_page_config(page_title="OddsBlaze App", layout="centered")
+st.title("🏀 OddsBlaze Parlay Builder")
 
-# --- 1. FIND THE GAME ---
+# --- 2. THE LOGIC (Based on your working snippet) ---
 def find_game_id(team_name):
-    # We hit the URL that you confirmed works in your browser
-    params = {"sportsbook": "draftkings", "league": "nba", "key": API_KEY}
+    """Finds the Event ID for the team you type."""
+    odds_url = f"{BASE_URL}/odds"
+    # Note: GET requests take key in params
+    params = {"key": API_KEY, "league": "nba"}
+    
     try:
-        res = requests.get(ODDS_URL, params=params, timeout=10)
-        data = res.json()
+        response = requests.get(odds_url, params=params)
+        events = response.json()
         
-        # Simple loop to find the team
-        if isinstance(data, list):
-            for game in data:
-                if team_name.lower() in str(game).lower():
-                    return game
+        # Search for the team
+        for event in events:
+            if team_name.lower() in event['home_team'].lower() or \
+               team_name.lower() in event['away_team'].lower():
+                return event
         return None
-    except:
+    except Exception as e:
+        st.error(f"Error finding game: {e}")
         return None
 
-# --- 2. GET THE PRICE ---
-def get_parlay_price(event_id, legs):
-    # We hit the SGP endpoint with the specific legs
-    url = f"{SGP_URL}?key={API_KEY}"
-    payload = {"event_id": event_id, "legs": legs}
+def get_sgp_price(event_id, legs):
+    """Prices the parlay using your exact working POST structure."""
+    sgp_url = f"{BASE_URL}/same_game_parlay"
+    
+    # Note: POST requests take key in the JSON body (payload)
+    payload = {
+        "key": API_KEY,
+        "sportsbook": "draftkings",
+        "event_id": event_id,
+        "legs": legs
+    }
+
     try:
-        res = requests.post(url, json=payload, timeout=10)
-        return res.json()
-    except:
+        sgp_response = requests.post(sgp_url, json=payload)
+        return sgp_response.json()
+    except Exception as e:
+        st.error(f"Error pricing parlay: {e}")
         return None
 
 # --- 3. THE INTERFACE ---
-prompt = st.text_input("Enter your bet idea:", "Knicks win, Brunson big game, and the over")
+st.write("Enter a team name to generate a DraftKings SGP.")
+team_input = st.text_input("Team Name:", "Knicks")
 
-if st.button("Get Price"):
-    with st.spinner("Checking DraftKings..."):
+if st.button("Generate Parlay Price"):
+    with st.spinner(f"Searching for {team_input}..."):
         # A. Find the Game
-        game = find_game_id("Knicks") # Hardcoded to 'Knicks' logic for stability
+        game = find_game_id(team_input)
         
         if game:
             st.success(f"Found Game: {game['away_team']} @ {game['home_team']}")
             
-            # B. Define the Legs (Hardcoded for reliability based on your prompt)
+            # B. Define Legs (We use the Knicks/Brunson example you liked)
+            # You can make these dynamic later, but let's keep it simple for now.
             legs = [
                 {"market": "h2h", "selection": "New York Knicks"},
                 {"market": "totals", "selection": "over", "line": 223.5},
-                {"market": "player_points", "player": "Jalen Brunson", "selection": "over", "line": 28.5}
+                {"market": "player_points", "player": "Jalen Brunson", "selection": "over", "line": 26.5}
             ]
             
-            # C. Call the Pricing Engine
-            price_data = get_parlay_price(game['id'], legs)
+            # C. Get Price
+            result = get_sgp_price(game['id'], legs)
             
-            if price_data and "odds_american" in price_data:
-                st.metric("DraftKings SGP Price", price_data['odds_american'])
-                st.write("Includes correlation for:")
-                st.write("- Knicks Moneyline")
-                st.write("- Over 223.5 Points")
-                st.write("- Brunson 28.5+ Points")
+            if result and 'odds_american' in result:
+                st.metric("DraftKings Odds", result['odds_american'])
+                st.write(f"Implied Win Probability: **{result.get('implied_probability')}%**")
+                
+                with st.expander("See Parlay Legs"):
+                    st.write(legs)
             else:
-                st.error("Could not price this parlay. (Markets might be closed)")
+                st.error("Could not price parlay. (Market might be closed or correlated legs invalid)")
+                st.json(result) # Show error if any
         else:
-            st.warning("Could not find the Knicks game in the live feed.")
+            st.warning(f"Could not find a game for '{team_input}' today.")
