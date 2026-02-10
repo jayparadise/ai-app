@@ -1,71 +1,71 @@
 import streamlit as st
 import requests
 
-# Exact configuration based on your working URL
+# --- CONFIGURATION ---
 API_KEY = "10019992-c9b1-46b5-be2c-9e760b1c2041"
-# We use the root URL since your browser test confirms this is where the data lives
-BASE_URL = "https://odds.oddsblaze.com" 
+FEED_URL = "https://odds.oddsblaze.com"
+SGP_URL = "https://draftkings.sgp.oddsblaze.com"
 
-st.set_page_config(page_title="OddsBlaze AI Demo", layout="wide")
-st.title("🏀 OddsBlaze AI Parlay Builder")
+st.set_page_config(page_title="OddsBlaze SGP Builder", layout="wide")
+st.title("🏀 OddsBlaze SGP BlazeBuilder")
+st.write("Pricing live correlated parlays via DraftKings.")
 
-def get_data():
-    """Fetches the full DK NBA market feed."""
-    params = {
-        "sportsbook": "draftkings",
-        "league": "nba",
-        "key": API_KEY
+def get_live_feed():
+    """Fetches the main NBA market feed to find event IDs."""
+    params = {"sportsbook": "draftkings", "league": "nba", "key": API_KEY}
+    try:
+        res = requests.get(FEED_URL, params=params, timeout=15)
+        return res.json() if res.status_code == 200 else []
+    except:
+        return []
+
+def get_sgp_price(event_id, legs):
+    """Hits the specialized SGP subdomain for pricing."""
+    # The SGP engine usually takes the key as a query param
+    url = f"{SGP_URL}/" 
+    payload = {
+        "event_id": event_id,
+        "legs": legs
     }
     try:
-        # No extra path needed based on your working link
-        response = requests.get(BASE_URL, params=params, timeout=15)
-        if response.status_code == 200:
-            return response.json()
-        else:
-            st.error(f"Error {response.status_code}: {response.text}")
-            return None
+        # Note: Some OddsBlaze configs take the key in the JSON or as a query param
+        res = requests.post(url, params={"key": API_KEY}, json=payload, timeout=10)
+        return res.json()
     except Exception as e:
-        st.error(f"Connection Error: {e}")
-        return None
+        return {"error": str(e)}
 
 # --- UI LOGIC ---
-prompt = st.text_input("Describe your parlay:", "Knicks win, Jalen Brunson points, over points")
+prompt = st.text_input("Enter team (e.g., 'Knicks'):", value="Knicks")
 
-if st.button("Generate & Price"):
-    with st.spinner("Fetching Live DraftKings Data..."):
-        data = get_data()
+if st.button("Build SGP Variations"):
+    with st.spinner("Finding live markets..."):
+        feed = get_live_feed()
+        # Find the game ID
+        game = next((g for g in feed if prompt.lower() in str(g).lower()), None)
         
-        if data:
-            # The OddsBlaze feed structure usually returns a list of events
-            # We search for the team mentioned in your prompt
-            matched_event = None
-            search_term = "Knicks" # This would be dynamic in the full version
+        if game:
+            event_id = game.get('id')
+            st.success(f"Matched Game: {game.get('away_team')} @ {game.get('home_team')} (ID: {event_id})")
             
-            for event in data:
-                if search_term.lower() in event.get('home_team', '').lower() or \
-                   search_term.lower() in event.get('away_team', '').lower():
-                    matched_event = event
-                    break
+            # Example Legs (In a full app, these would be parsed from your text)
+            variations = [
+                {"name": "Standard Over", "line": 223.5, "pts": 27.5},
+                {"name": "Aggressive Over", "line": 228.5, "pts": 32.5}
+            ]
             
-            if matched_event:
-                st.success(f"Matched: {matched_event['away_team']} @ {matched_event['home_team']}")
+            cols = st.columns(2)
+            for i, var in enumerate(variations):
+                legs = [
+                    {"market": "h2h", "selection": "New York Knicks"},
+                    {"market": "totals", "selection": "over", "line": var["line"]},
+                    {"market": "player_points", "player": "Jalen Brunson", "selection": "over", "line": var["pts"]}
+                ]
                 
-                # Layout for the parlay results
-                col1, col2, col3 = st.columns(3)
+                # PRICE IT
+                price_data = get_sgp_price(event_id, legs)
                 
-                with col1:
-                    st.metric("Safe Parlay", "+180")
-                    st.write("✅ Knicks ML")
-                    st.write("✅ Over 215.5")
-                with col2:
-                    st.metric("Value Parlay", "+258")
-                    st.write("✅ Knicks ML")
-                    st.write("✅ Over 223.5")
-                with col3:
-                    st.metric("Lotto Parlay", "+550")
-                    st.write("✅ Knicks ML")
-                    st.write("✅ Brunson 35+ Pts")
-            else:
-                st.warning(f"Could not find a live game for '{search_term}' in the current feed.")
-                if st.checkbox("Show Raw Feed"):
-                    st.json(data)
+                with cols[i]:
+                    st.metric(var["name"], price_data.get("odds_american", "N/A"))
+                    st.json(legs)
+        else:
+            st.warning("No live game found for that team. Check the NBA slate!")
